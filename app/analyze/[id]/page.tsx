@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import * as XLSX from 'xlsx';
 
 export default function AnalysisPage() {
     const { id } = useParams();
@@ -20,6 +21,79 @@ export default function AnalysisPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    // Parses "2-8", "5", "2-4" into an array of floor numbers
+    const parseFloorRange = (range: string): number[] => {
+        const floors: number[] = [];
+        for (const part of range.split(',')) {
+            const m = part.trim().match(/^(\d+)-(\d+)$/);
+            if (m) {
+                for (let f = +m[1]; f <= +m[2]; f++) floors.push(f);
+            } else {
+                const n = parseInt(part.trim());
+                if (!isNaN(n)) floors.push(n);
+            }
+        }
+        return floors.length ? floors : [1];
+    };
+
+    const handleDownloadExcel = () => {
+        if (!booklet?.analysis_info) return;
+
+        const rows: (string | number)[][] = [
+            ['Подъезд', 'Этаж', 'Тип квартиры', 'Площадь (м²)'],
+        ];
+
+        let totalApts = 0;
+        let totalArea = 0;
+
+        const entrances: any[] = booklet.analysis_info.entrances || [];
+        for (const ent of entrances) {
+            const label = ent.entranceName || 'Подъезд';
+            for (const layout of ent.floorLayouts || []) {
+                const floors = parseFloorRange(layout.floorRange || '1');
+                for (const floor of floors) {
+                    for (const apt of layout.apartments || []) {
+                        const count = apt.countOnFloor || 1;
+                        for (let i = 0; i < count; i++) {
+                            rows.push([label, floor, apt.type, apt.area]);
+                            totalArea += apt.area || 0;
+                            totalApts += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Summary — use the same source as the page cards
+        const totalBuildingApartments = booklet.analysis_info.projectInfo?.globalSummary?.totalBuildingApartments || totalApts;
+        let avgTotal = 0, avgCount = 0;
+        for (const ent of entrances) {
+            for (const layout of ent.floorLayouts || []) {
+                for (const apt of layout.apartments || []) {
+                    const n = apt.countOnFloor || 1;
+                    avgTotal += (apt.area || 0) * n;
+                    avgCount += n;
+                }
+            }
+        }
+        const avgArea = avgCount > 0 ? +(avgTotal / avgCount).toFixed(1) : 0;
+
+        rows.push([]);
+        rows.push(['', '', 'Количество квартир', totalBuildingApartments]);
+        rows.push(['', '', 'Средняя площадь (м²)', avgArea]);
+
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+
+        // Column widths
+        ws['!cols'] = [{ wch: 18 }, { wch: 8 }, { wch: 20 }, { wch: 16 }];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Отчёт');
+
+        const name = booklet.analysis_info.projectInfo?.name || booklet.name || 'report';
+        XLSX.writeFile(wb, `${name}.xlsx`);
     };
 
     useEffect(() => {
@@ -67,7 +141,7 @@ export default function AnalysisPage() {
                         {booklet.status === 'completed' && booklet.analysis_info ? (
                             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 {/* Summary Stats */}
-                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                                     <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl">
                                         <div className="text-slate-500 text-xs uppercase tracking-wider mb-1 font-bold">ЖК</div>
                                         <div className="text-xl font-bold text-slate-900 truncate" title={booklet.analysis_info.projectInfo?.name}>
@@ -84,6 +158,24 @@ export default function AnalysisPage() {
                                         <div className="text-slate-500 text-xs uppercase tracking-wider mb-1 font-bold">Квартир</div>
                                         <div className="text-2xl font-bold text-blue-600">
                                             {booklet.analysis_info.projectInfo?.globalSummary?.totalBuildingApartments || '—'}
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl">
+                                        <div className="text-slate-500 text-xs uppercase tracking-wider mb-1 font-bold">Ср. площадь</div>
+                                        <div className="text-2xl font-bold text-purple-600">
+                                            {(() => {
+                                                let total = 0, count = 0;
+                                                (booklet.analysis_info.entrances || []).forEach((ent: any) =>
+                                                    (ent.floorLayouts || []).forEach((layout: any) =>
+                                                        (layout.apartments || []).forEach((apt: any) => {
+                                                            const n = apt.countOnFloor || 1;
+                                                            total += (apt.area || 0) * n;
+                                                            count += n;
+                                                        })
+                                                    )
+                                                );
+                                                return count > 0 ? `${(total / count).toFixed(1)} м²` : '—';
+                                            })()}
                                         </div>
                                     </div>
                                     <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl">
@@ -155,7 +247,13 @@ export default function AnalysisPage() {
                                     </div>
                                 )}
 
-                                <div className="pt-8 border-t border-slate-100">
+                                <div className="pt-8 border-t border-slate-100 flex items-center gap-4">
+                                    <button
+                                        onClick={handleDownloadExcel}
+                                        className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-5 rounded-xl transition-all shadow-md shadow-emerald-500/20"
+                                    >
+                                        📊 Выгрузить отчёт
+                                    </button>
                                     <a
                                         href={booklet.pdf_url}
                                         target="_blank"

@@ -25,30 +25,55 @@ export default function BookletAnalyzer() {
         if (!file) return;
 
         setUploading(true);
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('name', file.name.replace('.pdf', ''));
+        setMessage('📤 Загрузка файла...');
 
         try {
+            // Upload directly from browser to Supabase Storage
+            // (bypasses Vercel's 4.5MB serverless function body limit)
+            const safeName = file.name
+                .replace(/[^\x00-\x7F]/g, '') // remove non-ASCII (Cyrillic etc.)
+                .replace(/\s+/g, '_')           // spaces → underscores
+                .replace(/[^a-zA-Z0-9._-]/g, '') // remove remaining special chars
+                || 'file.pdf';                  // fallback if name becomes empty
+            const fileName = `${Date.now()}-${safeName}`;
+            const { data: storageData, error: storageError } = await supabase.storage
+                .from('booklets')
+                .upload(fileName, file);
+
+            if (storageError) {
+                throw new Error(`Ошибка загрузки: ${storageError.message}`);
+            }
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('booklets')
+                .getPublicUrl(fileName);
+
+            // Step 2: Save record to DB via API (only sends URL, not the file)
+            setMessage('💾 Сохранение записи...');
             const response = await fetch('/api/upload', {
                 method: 'POST',
-                body: formData,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: file.name.replace('.pdf', ''),
+                    publicUrl,
+                }),
             });
 
             if (response.ok) {
                 const newBooklet = await response.json();
-                setMessage('Upload successful! Starting analysis...');
+                setMessage('✅ Загрузка успешна! Начинаю анализ...');
                 setFile(null);
                 fetchBooklets();
 
                 // Trigger analysis
                 fetch(`/api/booklets/${newBooklet.id}/analyze`, { method: 'POST' });
             } else {
-                setMessage('Upload failed.');
+                const err = await response.json();
+                throw new Error(err.error || 'Ошибка сохранения записи.');
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            setMessage('An error occurred.');
+            setMessage(`❌ ${error.message || 'Произошла ошибка.'}`);
         } finally {
             setUploading(false);
         }
@@ -59,7 +84,7 @@ export default function BookletAnalyzer() {
             <div className="max-w-5xl mx-auto space-y-12">
                 <header className="text-center space-y-4">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">
-                        🏢 Анализ Буклетов ЖК
+                        🏢 Квартирография
                     </h1>
                     <p className="text-slate-500">Загрузите PDF буклет для автоматического анализа данных</p>
                 </header>
@@ -79,14 +104,14 @@ export default function BookletAnalyzer() {
                                 <p className="text-slate-600 font-medium">
                                     {file ? file.name : "Перетащите PDF буклет сюда или нажмите для выбора"}
                                 </p>
-                                <p className="text-xs text-slate-400">Максимальный размер 10MB</p>
+                                <p className="text-xs text-slate-400">Максимальный размер 100MB</p>
                             </div>
                         </div>
                         <button
                             disabled={!file || uploading}
                             className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg ${!file || uploading
-                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+                                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
                                 }`}
                         >
                             {uploading ? "💾 Загрузка и обработка..." : "🚀 Начать анализ"}
@@ -114,8 +139,8 @@ export default function BookletAnalyzer() {
                                 <div className="flex justify-between items-start mb-4">
                                     <span className="text-3xl">📘</span>
                                     <span className={`text-[10px] px-2 py-1 rounded-full uppercase font-bold border ${booklet.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                                            booklet.status === 'processing' ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' :
-                                                'bg-slate-50 text-slate-500 border-slate-200'
+                                        booklet.status === 'processing' ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' :
+                                            'bg-slate-50 text-slate-500 border-slate-200'
                                         }`}>
                                         {booklet.status === 'completed' ? 'Готово' :
                                             booklet.status === 'processing' ? 'В обработке' :
