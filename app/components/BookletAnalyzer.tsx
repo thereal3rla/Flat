@@ -13,7 +13,7 @@ export default function BookletAnalyzer() {
     const fetchBooklets = async () => {
         const response = await fetch('/api/booklets');
         const data = await response.json();
-        setBooklets(data);
+        setBooklets(Array.isArray(data) ? data : []);
     };
 
     useEffect(() => {

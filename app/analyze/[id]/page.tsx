@@ -247,13 +247,19 @@ export default function AnalysisPage() {
                                     </div>
                                 )}
 
-                                <div className="pt-8 border-t border-slate-100 flex items-center gap-4">
+                                <div className="pt-8 border-t border-slate-100 flex items-center gap-4 flex-wrap">
                                     <button
                                         onClick={handleDownloadExcel}
                                         className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-5 rounded-xl transition-all shadow-md shadow-emerald-500/20"
                                     >
                                         📊 Выгрузить отчёт
                                     </button>
+                                    <a
+                                        href={`/api/booklets/${id}/export-features`}
+                                        className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold py-2 px-5 rounded-xl transition-all shadow-md shadow-violet-500/20"
+                                    >
+                                        🏗 Продуктовые фичи XLSX
+                                    </a>
                                     <a
                                         href={booklet.pdf_url}
                                         target="_blank"
