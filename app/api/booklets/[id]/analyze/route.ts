@@ -33,18 +33,14 @@ export async function POST(
             .eq('id', id);
 
         // 3. Trigger Supabase Edge Function
-        // Replace <YOUR_PROJECT_REF> with your actual project reference
-        const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1].split('.')[0];
-        const functionUrl = `https://${projectRef}.functions.supabase.co/analyze-booklet`;
+        const { error: invokeError } = await supabase.functions.invoke('analyze-booklet', {
+            body: { record: booklet }
+        });
 
-        fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
-            },
-            body: JSON.stringify({ record: booklet })
-        }).catch(err => console.error('Edge Function Trigger Error:', err));
+        if (invokeError) {
+            console.error('Edge Function Trigger Error:', invokeError);
+            return NextResponse.json({ error: 'Failed to trigger analysis' }, { status: 500 });
+        }
 
         return NextResponse.json({ message: 'Анализ запущен через Edge Function', status: 'processing' });
     } catch (error: any) {
